@@ -150,4 +150,48 @@ class GitOperationServiceTest {
         // init commit + 1 scheduled commit = 2 total
         assertEquals(2, commits.size(), "scheduleCommit should coalesce — only 1 auto-commit expected");
     }
+
+    @Test
+    void gitStatus_cleanRepo_emptyLists() throws Exception {
+        GitOperationService.StatusSummary status = service.gitStatus();
+        assertEquals(defaultBranch, status.branch());
+        assertTrue(status.modified().isEmpty());
+        assertTrue(status.added().isEmpty());
+        assertTrue(status.deleted().isEmpty());
+    }
+
+    @Test
+    void gitStatus_untrackedFile_appearsInAdded() throws Exception {
+        Files.writeString(localDir.resolve("new.txt"), "content");
+        GitOperationService.StatusSummary status = service.gitStatus();
+        assertTrue(status.added().contains("new.txt"),
+            "Untracked file should appear in added, got: " + status.added());
+    }
+
+    @Test
+    void gitStatus_modifiedFile_appearsInModified() throws Exception {
+        // init.txt was committed in setUp — modify it
+        Files.writeString(localDir.resolve("init.txt"), "modified content");
+        GitOperationService.StatusSummary status = service.gitStatus();
+        assertTrue(status.modified().contains("init.txt"),
+            "Modified tracked file should appear in modified, got: " + status.modified());
+    }
+
+    @Test
+    void gitStatus_deletedFile_appearsInDeleted() throws Exception {
+        Files.delete(localDir.resolve("init.txt"));
+        GitOperationService.StatusSummary status = service.gitStatus();
+        assertTrue(status.deleted().contains("init.txt"),
+            "Deleted tracked file should appear in deleted, got: " + status.deleted());
+    }
+
+    @Test
+    void gitStatus_listsAreSorted() throws Exception {
+        Files.writeString(localDir.resolve("z-file.txt"), "z");
+        Files.writeString(localDir.resolve("a-file.txt"), "a");
+        GitOperationService.StatusSummary status = service.gitStatus();
+        List<String> added = status.added();
+        assertTrue(added.indexOf("a-file.txt") < added.indexOf("z-file.txt"),
+            "Added list should be sorted alphabetically, got: " + added);
+    }
 }

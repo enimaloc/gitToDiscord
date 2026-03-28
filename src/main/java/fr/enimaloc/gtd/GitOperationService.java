@@ -10,8 +10,7 @@ import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.transport.RefSpec;
 
 import java.io.IOException;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.*;
 
 public class GitOperationService {
@@ -119,5 +118,33 @@ public class GitOperationService {
             if (!logs.isEmpty()) return logs.get(0).getReason();
         } catch (Exception ignored) {}
         return null;
+    }
+
+    // ── Status ────────────────────────────────────────────────────────────────
+
+    public record StatusSummary(
+        String branch,
+        List<String> modified,
+        List<String> added,
+        List<String> deleted
+    ) {}
+
+    public StatusSummary gitStatus() throws GitAPIException, IOException {
+        String branch = currentBranch();
+        org.eclipse.jgit.api.Status status = git.status().call();
+
+        List<String> modified = new ArrayList<>(status.getModified());
+        List<String> added = new ArrayList<>();
+        added.addAll(status.getAdded());
+        added.addAll(status.getUntracked());
+        List<String> deleted = new ArrayList<>();
+        deleted.addAll(status.getRemoved());
+        deleted.addAll(status.getMissing());
+
+        Collections.sort(modified);
+        Collections.sort(added);
+        Collections.sort(deleted);
+
+        return new StatusSummary(branch, modified, added, deleted);
     }
 }
