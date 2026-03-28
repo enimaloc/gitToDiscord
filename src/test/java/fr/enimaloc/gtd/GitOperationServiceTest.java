@@ -85,6 +85,14 @@ class GitOperationServiceTest {
     }
 
     @Test
+    void listBranches_remotebranchHasRemotePrefix() throws Exception {
+        service.createBranch("feature-test");
+        List<String> branches = service.listBranches();
+        assertTrue(branches.contains("remote/feature-test"),
+            "Remote branch should appear as remote/feature-test, got: " + branches);
+    }
+
+    @Test
     void cherryPick_appliesCommitToCurrentBranch() throws Exception {
         service.createBranch("feat/cherry");
         service.switchBranch("feat/cherry");
