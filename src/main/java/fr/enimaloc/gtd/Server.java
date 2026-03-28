@@ -34,9 +34,17 @@ public class Server {
     private final Path dataPath;
     private final Path gitPath;
     private Git git;
+    private GitOperationService gitOps;
 
     public Path gitPath() {
         return gitPath;
+    }
+
+    public GitOperationService gitOps() { return gitOps; }
+
+    public void updateBranchConfig(String branch) throws IOException {
+        config.branch = branch;
+        GTD.MAPPER.writer().writeValue(dataPath.resolve("config.toml").toFile(), config);
     }
 
     public Server(GTD.Config config, Guild guild) throws IOException {
@@ -51,8 +59,14 @@ public class Server {
         this.gitPath = dataPath.resolve("git");
         try {
             this.git = Git.open(gitPath.toFile());
+            this.gitOps = new GitOperationService(this.git);
+            this.git.checkout().setName(this.config.branch).call();
             synchroAll(guild);
-        } catch (RepositoryNotFoundException ign) {}
+        } catch (RepositoryNotFoundException ign) {
+        } catch (org.eclipse.jgit.api.errors.GitAPIException e) {
+            this.git.close();
+            throw new IOException("Failed to checkout branch " + this.config.branch, e);
+        }
     }
 
     public void initGit(String url, Guild guild) throws IOException {
@@ -65,6 +79,7 @@ public class Server {
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize Git repository", e);
         }
+        this.gitOps = new GitOperationService(this.git);
         synchroAll(guild);
     }
 
@@ -160,9 +175,12 @@ public class Server {
 
     public PullResult pull(Guild guild) throws IOException, GitAPIException {
         if (git == null) throw new IllegalStateException("Git not initialized — run /init first");
-
         git.pull().call();
+        return applyGitState(guild);
+    }
 
+    public PullResult applyGitState(Guild guild) throws IOException, GitAPIException {
+        if (git == null) throw new IllegalStateException("Git not initialized — run /init first");
         GuildFile guildFile                        = readToml(gitPath.resolve(GuildFile.FILE_PATH), GuildFile.class);
         Map<Path, RoleFile> rolePaths              = readTomlDirWithPaths(gitPath.resolve("roles"), RoleFile.class);
         Map<Path, CategoryFile> catPaths           = readTomlDirWithPaths(gitPath.resolve("categories"), CategoryFile.class);
@@ -178,10 +196,8 @@ public class Server {
 
         int created = 0, updated = 0;
 
-        // Guild
         if (guildFile != null) { executor.applyGuild(guildFile); updated++; }
 
-        // Roles
         Map<Long, String> existingRoles = guild.getRoles().stream()
                 .collect(Collectors.toMap(Role::getIdLong, Role::getName));
         ReconcileResult<RoleFile> roles = reconciler.reconcileRoles(existingRoles, roleFiles);
@@ -192,7 +208,6 @@ public class Server {
         }
         for (var e : roles.toUpdate()) { executor.applyRole(e.discordId(), e.file()); updated++; }
 
-        // Categories
         Map<Long, String> existingCats = guild.getCategories().stream()
                 .collect(Collectors.toMap(Category::getIdLong, Category::getName));
         ReconcileResult<CategoryFile> cats = reconciler.reconcileCategories(existingCats, catFiles);
@@ -203,7 +218,6 @@ public class Server {
         }
         for (var e : cats.toUpdate()) { executor.applyCategory(e.discordId(), e.file()); updated++; }
 
-        // Channels — resolve temp parentCategoryId before creating
         for (ChannelFile f : chanFiles) {
             if (TempIdUtils.isTemp(f.parentCategoryId) && tempToReal.containsKey(f.parentCategoryId)) {
                 f.parentCategoryId = tempToReal.get(f.parentCategoryId);
@@ -216,12 +230,9 @@ public class Server {
         for (ChannelFile f : channels.toCreate()) { executor.createChannel(f); created++; }
         for (var e : channels.toUpdate()) { executor.applyChannel(e.discordId(), e.file()); updated++; }
 
-        // Resolve temp IDs — update files and push
         if (!tempToReal.isEmpty()) {
             resolveTempIds(tempToReal);
-            git.add().addFilepattern(".").call();
-            git.commit().setMessage("fix: resolve temp IDs to Discord IDs").call();
-            git.push().call();
+            gitOps.commitAndPush("fix: resolve temp IDs to Discord IDs");
         }
 
         return new PullResult(created, updated);
