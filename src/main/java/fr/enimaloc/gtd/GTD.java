@@ -9,11 +9,16 @@ import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEve
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.Command;
 import net.dv8tion.jda.api.interactions.commands.OptionType;
+import net.dv8tion.jda.api.interactions.commands.build.Commands;
+import net.dv8tion.jda.api.interactions.commands.build.SubcommandData;
 import fr.enimaloc.gtd.archive.MessageArchiver;
+import net.dv8tion.jda.api.requests.GatewayIntent;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.*;
+import java.util.List;
 
 public class GTD extends ListenerAdapter {
     public static final TomlMapper MAPPER = new TomlMapper();
@@ -31,7 +36,9 @@ public class GTD extends ListenerAdapter {
     }
 
     public GTD(Config config) {
-        this(JDABuilder.createDefault(config.botToken).build(), config);
+        this(JDABuilder.createDefault(config.botToken)
+                .enableIntents(GatewayIntent.MESSAGE_CONTENT)
+                .build(), config);
     }
 
     public GTD(JDA jda, Config config) {
@@ -64,6 +71,23 @@ public class GTD extends ListenerAdapter {
         if (!existing.contains("archive")) {
             jda.upsertCommand("archive", "Archive l'historique complet des messages du serveur")
                     .queue();
+        }
+        if (!existing.contains("branch")) {
+            jda.upsertCommand(Commands.slash("branch", "Gérer les branches git")
+                .addSubcommands(
+                    new SubcommandData("create", "Créer une nouvelle branche")
+                        .addOption(OptionType.STRING, "name", "Nom de la branche", true),
+                    new SubcommandData("switch", "Changer de branche (sans modifier Discord)")
+                        .addOption(OptionType.STRING, "name", "Nom de la branche", true),
+                    new SubcommandData("list", "Lister toutes les branches"),
+                    new SubcommandData("delete", "Supprimer une branche")
+                        .addOption(OptionType.STRING, "name", "Nom de la branche", true)
+                )).queue();
+        }
+        if (!existing.contains("cherry-pick")) {
+            jda.upsertCommand(Commands.slash("cherry-pick", "Appliquer un commit git sur Discord")
+                .addOption(OptionType.STRING, "commit", "Hash du commit", true)
+            ).queue();
         }
     }
 
@@ -136,6 +160,71 @@ public class GTD extends ListenerAdapter {
             } catch (Exception e) {
                 e.printStackTrace();
                 event.getHook().editOriginal("Échec de l'archive : " + e.getMessage()).queue();
+            }
+        } else if ("branch".equals(event.getName())) {
+            event.deferReply(true).queue();
+            if (server.gitOps() == null) {
+                event.getHook().editOriginal("Git non initialisé — lancez /init d'abord").queue();
+                return;
+            }
+            try {
+                switch (event.getSubcommandName()) {
+                    case "create" -> {
+                        String name = event.getOption("name").getAsString();
+                        server.gitOps().createBranch(name);
+                        event.getHook().editOriginal("Branche `" + name + "` créée et poussée").queue();
+                    }
+                    case "switch" -> {
+                        String name = event.getOption("name").getAsString();
+                        if (server.gitOps().currentBranch().equals(name)) {
+                            event.getHook().editOriginal("Déjà sur la branche `" + name + "`").queue();
+                            return;
+                        }
+                        server.gitOps().switchBranch(name);
+                        server.updateBranchConfig(name);
+                        event.getHook().editOriginal("Branche changée vers `" + name + "` — le prochain /pull utilisera cette branche").queue();
+                    }
+                    case "list" -> {
+                        List<String> branches = server.gitOps().listBranches();
+                        String current = server.gitOps().currentBranch();
+                        StringBuilder sb = new StringBuilder("**Branches :**\n");
+                        for (String b : branches) {
+                            sb.append(b.equals(current) ? "• **" + b + "** ← courante\n" : "• " + b + "\n");
+                        }
+                        event.getHook().editOriginal(sb.toString()).queue();
+                    }
+                    case "delete" -> {
+                        String name = event.getOption("name").getAsString();
+                        if (server.gitOps().currentBranch().equals(name)) {
+                            event.getHook().editOriginal(
+                                "Impossible de supprimer la branche courante. Switchez d'abord avec `/branch switch`.").queue();
+                            return;
+                        }
+                        server.gitOps().deleteBranch(name);
+                        event.getHook().editOriginal("Branche `" + name + "` supprimée").queue();
+                    }
+                    default -> event.getHook().editOriginal("Sous-commande inconnue").queue();
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+                event.getHook().editOriginal("Erreur branch : " + e.getMessage()).queue();
+            }
+        } else if ("cherry-pick".equals(event.getFullCommandName())) {
+            event.deferReply(true).queue();
+            if (server.gitOps() == null) {
+                event.getHook().editOriginal("Git non initialisé — lancez /init d'abord").queue();
+                return;
+            }
+            try {
+                String hash = event.getOption("commit").getAsString();
+                server.gitOps().cherryPick(hash);
+                Server.PullResult result = server.applyGitState(event.getGuild());
+                server.gitOps().push();
+                event.getHook().editOriginal(
+                    "Cherry-pick `" + hash.substring(0, Math.min(7, hash.length())) + "` appliqué : " + result).queue();
+            } catch (Exception e) {
+                e.printStackTrace();
+                event.getHook().editOriginal("Erreur cherry-pick : " + e.getMessage()).queue();
             }
         }
     }
