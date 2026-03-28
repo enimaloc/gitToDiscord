@@ -116,17 +116,38 @@ class GitOperationServiceTest {
     }
 
     @Test
-    void push_sendsLocalCommitToRemote() throws Exception {
+    void push_sendsLocalCommitToRemote(@TempDir Path verifyDir) throws Exception {
         Files.writeString(localDir.resolve("pushed.txt"), "data");
         localGit.add().addFilepattern(".").call();
         localGit.commit().setMessage("test: local commit").call();
         service.push();
-        Path verifyDir = Files.createTempDirectory("verify");
         try (Git verify = Git.cloneRepository()
                 .setURI(remoteDir.toUri().toString())
                 .setDirectory(verifyDir.toFile()).call()) {
             String last = verify.log().setMaxCount(1).call().iterator().next().getShortMessage();
             assertEquals("test: local commit", last);
         }
+    }
+
+    @Test
+    void scheduleCommit_coalescesMultipleCalls() throws Exception {
+        // Use commitDelayMs=0 so commits fire immediately
+        service = new GitOperationService(localGit, Executors.newSingleThreadScheduledExecutor(), 0L);
+
+        // Write a file so there's something to commit
+        Files.writeString(localDir.resolve("coalesce.txt"), "v1");
+
+        // Call twice rapidly — only one commit should result
+        service.scheduleCommit(12345L, "test: first call", null, null);
+        service.scheduleCommit(12345L, "test: second call", null, null);
+
+        // Give the executor time to run
+        Thread.sleep(200);
+
+        // Only 2 commits total (init + one from scheduleCommit — not two)
+        var commits = new java.util.ArrayList<>();
+        localGit.log().call().forEach(commits::add);
+        // init commit + 1 scheduled commit = 2 total
+        assertEquals(2, commits.size(), "scheduleCommit should coalesce — only 1 auto-commit expected");
     }
 }
