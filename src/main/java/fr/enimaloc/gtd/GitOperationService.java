@@ -10,8 +10,15 @@ import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.transport.RefSpec;
 
 import java.io.IOException;
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 public class GitOperationService {
 
@@ -131,20 +138,20 @@ public class GitOperationService {
 
     public StatusSummary gitStatus() throws GitAPIException, IOException {
         String branch = currentBranch();
-        org.eclipse.jgit.api.Status status = git.status().call();
+        Status status = git.status().call();
 
-        List<String> modified = new ArrayList<>(status.getModified());
-        List<String> added = new ArrayList<>();
-        added.addAll(status.getAdded());
-        added.addAll(status.getUntracked());
-        List<String> deleted = new ArrayList<>();
-        deleted.addAll(status.getRemoved());
-        deleted.addAll(status.getMissing());
+        List<String> modifiedList = new ArrayList<>(status.getModified());
+        List<String> addedList = new ArrayList<>();
+        addedList.addAll(status.getAdded());
+        addedList.addAll(status.getUntracked());
+        List<String> deletedList = new ArrayList<>();
+        deletedList.addAll(status.getRemoved());
+        deletedList.addAll(status.getMissing());
 
-        Collections.sort(modified);
-        Collections.sort(added);
-        Collections.sort(deleted);
+        Collections.sort(modifiedList);
+        Collections.sort(addedList);
+        Collections.sort(deletedList);
 
-        return new StatusSummary(branch, modified, added, deleted);
+        return new StatusSummary(branch, List.copyOf(modifiedList), List.copyOf(addedList), List.copyOf(deletedList));
     }
 }
