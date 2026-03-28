@@ -88,6 +88,9 @@ public class GTD extends ListenerAdapter {
                 .addOption(OptionType.STRING, "commit", "Hash du commit", true)
             ).queue();
         }
+        if (!existing.contains("status")) {
+            jda.upsertCommand("status", "Afficher l'état git du dépôt").queue();
+        }
     }
 
     public static class Config {
@@ -231,6 +234,45 @@ public class GTD extends ListenerAdapter {
             } catch (Exception e) {
                 e.printStackTrace();
                 event.getHook().editOriginal("Erreur cherry-pick : " + e.getMessage()).queue();
+            }
+        } else if ("status".equals(event.getFullCommandName())) {
+            event.deferReply(true).queue();
+            if (server.gitOps() == null) {
+                event.getHook().editOriginal("Git non initialisé — lancez /init d'abord").queue();
+                return;
+            }
+            try {
+                GitOperationService.StatusSummary status = server.gitOps().gitStatus();
+                int totalChanged = status.modified().size() + status.added().size() + status.deleted().size();
+
+                if (totalChanged == 0) {
+                    event.getHook().editOriginal(
+                        "Branche : `" + status.branch() + "` — Rien à signaler (working tree clean)").queue();
+                    return;
+                }
+
+                StringBuilder sb = new StringBuilder();
+                sb.append("**Branche :** `").append(status.branch()).append("`\n");
+                sb.append("**").append(status.modified().size()).append(" modifié(s), ")
+                  .append(status.added().size()).append(" ajouté(s), ")
+                  .append(status.deleted().size()).append(" supprimé(s)**\n\n");
+
+                for (String f : status.modified()) sb.append("M  ").append(f).append("\n");
+                for (String f : status.added())    sb.append("A  ").append(f).append("\n");
+                for (String f : status.deleted())  sb.append("D  ").append(f).append("\n");
+
+                String response = sb.toString();
+                if (response.length() > 1900) {
+                    response = "**Branche :** `" + status.branch() + "`\n"
+                        + "**" + status.modified().size() + " modifié(s), "
+                        + status.added().size() + " ajouté(s), "
+                        + status.deleted().size() + " supprimé(s)**\n"
+                        + "(liste tronquée — " + totalChanged + " fichier(s) au total)";
+                }
+                event.getHook().editOriginal(response).queue();
+            } catch (Exception e) {
+                e.printStackTrace();
+                event.getHook().editOriginal("Erreur status : " + e.getMessage()).queue();
             }
         }
     }
