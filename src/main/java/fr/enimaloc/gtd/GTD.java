@@ -18,7 +18,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.*;
-import java.util.List;
 
 public class GTD extends ListenerAdapter {
     public static final TomlMapper MAPPER = new TomlMapper();
@@ -161,14 +160,19 @@ public class GTD extends ListenerAdapter {
                 e.printStackTrace();
                 event.getHook().editOriginal("Échec de l'archive : " + e.getMessage()).queue();
             }
-        } else if ("branch".equals(event.getName())) {
+        } else if ("branch".equals(event.getFullCommandName())) {
             event.deferReply(true).queue();
             if (server.gitOps() == null) {
                 event.getHook().editOriginal("Git non initialisé — lancez /init d'abord").queue();
                 return;
             }
             try {
-                switch (event.getSubcommandName()) {
+                String subCmd = event.getSubcommandName();
+                if (subCmd == null) {
+                    event.getHook().editOriginal("Sous-commande manquante").queue();
+                    return;
+                }
+                switch (subCmd) {
                     case "create" -> {
                         String name = event.getOption("name").getAsString();
                         server.gitOps().createBranch(name);
@@ -191,7 +195,9 @@ public class GTD extends ListenerAdapter {
                         for (String b : branches) {
                             sb.append(b.equals(current) ? "• **" + b + "** ← courante\n" : "• " + b + "\n");
                         }
-                        event.getHook().editOriginal(sb.toString()).queue();
+                        String response = sb.toString();
+                        if (response.length() > 1900) response = "Trop de branches à afficher (" + branches.size() + " branches).";
+                        event.getHook().editOriginal(response).queue();
                     }
                     case "delete" -> {
                         String name = event.getOption("name").getAsString();
