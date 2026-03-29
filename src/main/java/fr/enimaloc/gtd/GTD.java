@@ -53,7 +53,6 @@ public class GTD extends ListenerAdapter {
         }
         Config config = new Config();
         config.botToken = discordToken;
-        config.gitToken = env.get("GIT_TOKEN");
         String dataPath = env.get("GTD_DATA_PATH");
         config.dataPath = (dataPath != null && !dataPath.isBlank()) ? dataPath : "/app/data";
         File parent = configFile.getParentFile();
@@ -87,6 +86,7 @@ public class GTD extends ListenerAdapter {
         if (!existing.contains("init")) {
             jda.upsertCommand("init", "Initialize the git repository")
                     .addOption(OptionType.STRING, "repository", "Repository URL", true)
+                    .addOption(OptionType.STRING, "token", "GitHub/Git token", true)
                     .queue();
         }
         if (!existing.contains("push")) {
@@ -126,7 +126,6 @@ public class GTD extends ListenerAdapter {
     public static class Config {
         public String dataPath = "./data";
         public String botToken;
-        public String gitToken;
     }
 
     @Override
@@ -152,7 +151,11 @@ public class GTD extends ListenerAdapter {
         if ("init".equals(event.getFullCommandName())) {
             event.deferReply(true).queue();
             try {
-                server.initGit(event.getOption("repository").getAsString(), event.getGuild());
+                server.initGit(
+                    event.getOption("repository").getAsString(),
+                    event.getOption("token").getAsString(),
+                    event.getGuild()
+                );
                 event.getHook().editOriginal("Git initialisé + état Discord exporté").queue();
             } catch (Exception e) {
                 e.printStackTrace();

@@ -35,7 +35,7 @@ public class Server {
     private final long serverId;
     private final Path dataPath;
     private final Path gitPath;
-    private final CredentialsProvider credentials;
+    private CredentialsProvider credentials;
     private Git git;
     private GitOperationService gitOps;
 
@@ -60,7 +60,7 @@ public class Server {
         }
         this.config = GTD.MAPPER.readValue(lConfig.toFile(), GitConfig.class);
         this.gitPath = dataPath.resolve("git");
-        String t = config.gitToken;
+        String t = this.config.gitToken;
         this.credentials = (t != null && !t.isBlank())
             ? new UsernamePasswordCredentialsProvider("oauth2", t) : null;
         try {
@@ -77,8 +77,12 @@ public class Server {
         }
     }
 
-    public void initGit(String url, Guild guild) throws IOException {
+    public void initGit(String url, String token, Guild guild) throws IOException {
         if (git != null) throw new IllegalStateException("Git repository already initialized");
+        this.config.gitToken = token;
+        this.credentials = (token != null && !token.isBlank())
+            ? new UsernamePasswordCredentialsProvider("oauth2", token) : null;
+        GTD.MAPPER.writer().writeValue(dataPath.resolve("config.toml").toFile(), this.config);
         try {
             this.git = Git.cloneRepository()
                     .setURI(url)

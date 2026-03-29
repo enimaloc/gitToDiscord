@@ -20,14 +20,12 @@ class GTDConfigTest {
         File configFile = tempDir.resolve("config.toml").toFile();
         GTD.Config written = new GTD.Config();
         written.botToken = "file-token";
-        written.gitToken = "file-git-token";
         written.dataPath = "/custom/data";
         GTD.MAPPER.writer().writeValue(configFile, written);
 
         GTD.Config config = GTD.resolveConfig(configFile.getAbsolutePath(), Map.of());
 
         assertEquals("file-token", config.botToken);
-        assertEquals("file-git-token", config.gitToken);
         assertEquals("/custom/data", config.dataPath);
     }
 
@@ -36,14 +34,12 @@ class GTDConfigTest {
         String tomlPath = tempDir.resolve("config.toml").toString();
         Map<String, String> env = Map.of(
             "DISCORD_TOKEN", "env-discord-token",
-            "GIT_TOKEN", "env-git-token",
             "GTD_DATA_PATH", "/env/data"
         );
 
         GTD.Config config = GTD.resolveConfig(tomlPath, env);
 
         assertEquals("env-discord-token", config.botToken);
-        assertEquals("env-git-token", config.gitToken);
         assertEquals("/env/data", config.dataPath);
         assertTrue(new File(tomlPath).exists(), "config.toml should have been written to disk");
     }
