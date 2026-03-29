@@ -1,0 +1,9 @@
+.git/
+.gradle/
+.idea/
+build/
+data/
+net/
+docs/
+*.toml
+*.md
