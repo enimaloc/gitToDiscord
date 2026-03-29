@@ -4,6 +4,8 @@ import com.fasterxml.jackson.dataformat.toml.TomlMapper;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.Guild;
+import net.dv8tion.jda.api.events.guild.GuildAvailableEvent;
+import net.dv8tion.jda.api.events.guild.GuildJoinEvent;
 import net.dv8tion.jda.api.events.guild.GuildReadyEvent;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
@@ -25,13 +27,41 @@ public class GTD extends ListenerAdapter {
     private final Config config;
     private final Map<Long, Server> servers = new HashMap<>();
 
-    static void main(String... args) throws IOException {
+    public static void main(String... args) throws IOException {
         String tomlPath = System.getenv().getOrDefault("GTD_CONFIG", "./config.toml");
-        if (!Files.exists(new File(tomlPath).toPath())) {
-            MAPPER.writer().writeValue(new File(tomlPath), new Config());
+        Config config;
+        try {
+            config = resolveConfig(tomlPath, System.getenv());
+        } catch (IllegalStateException e) {
+            System.err.println(e.getMessage());
+            System.exit(1);
+            return;
         }
-        GTD gtd = new GTD(MAPPER.readValue(new File(tomlPath), Config.class));
-        gtd.init();
+        new GTD(config).init();
+    }
+
+    public static Config resolveConfig(String tomlPath, Map<String, String> env) throws IOException {
+        File configFile = new File(tomlPath);
+        if (configFile.exists()) {
+            return MAPPER.readValue(configFile, Config.class);
+        }
+        String discordToken = env.get("DISCORD_TOKEN");
+        if (discordToken == null || discordToken.isBlank()) {
+            throw new IllegalStateException(
+                "[GTD] Aucun fichier de config trouvé à '" + tomlPath + "' et DISCORD_TOKEN n'est pas défini.\n" +
+                "Définissez DISCORD_TOKEN ou montez un config.toml à l'emplacement GTD_CONFIG.");
+        }
+        Config config = new Config();
+        config.botToken = discordToken;
+        config.gitToken = env.get("GIT_TOKEN");
+        String dataPath = env.get("GTD_DATA_PATH");
+        config.dataPath = (dataPath != null && !dataPath.isBlank()) ? dataPath : "/app/data";
+        File parent = configFile.getParentFile();
+        if (parent != null && !parent.exists()) {
+            parent.mkdirs();
+        }
+        MAPPER.writer().writeValue(configFile, config);
+        return config;
     }
 
     public GTD(Config config) {
@@ -95,20 +125,20 @@ public class GTD extends ListenerAdapter {
 
     public static class Config {
         public String dataPath = "./data";
-        public String botToken = System.getenv("DISCORD_TOKEN");
+        public String botToken;
+        public String gitToken;
     }
 
     @Override
     public void onGuildReady(GuildReadyEvent event) {
         super.onGuildReady(event);
+        Guild guild = event.getGuild();
 
-        for (Guild guild : jda.getGuilds()) {
-            try {
-                System.out.println("Initializing server for guild: " + guild.getName());
-                servers.put(guild.getIdLong(), new Server(config, guild));
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+        try {
+            System.out.println("Initializing server for guild: " + guild.getName());
+            servers.put(guild.getIdLong(), new Server(config, guild));
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 
@@ -163,7 +193,7 @@ public class GTD extends ListenerAdapter {
                 e.printStackTrace();
                 event.getHook().editOriginal("Échec de l'archive : " + e.getMessage()).queue();
             }
-        } else if ("branch".equals(event.getFullCommandName())) {
+        } else if ("branch".equals(event.getName())) {
             event.deferReply(true).queue();
             if (server.gitOps() == null) {
                 event.getHook().editOriginal("Git non initialisé — lancez /init d'abord").queue();
