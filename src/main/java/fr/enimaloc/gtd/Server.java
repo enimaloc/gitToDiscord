@@ -17,6 +17,8 @@ import net.dv8tion.jda.api.entities.sticker.GuildSticker;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.errors.RepositoryNotFoundException;
+import org.eclipse.jgit.transport.CredentialsProvider;
+import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -33,6 +35,7 @@ public class Server {
     private final long serverId;
     private final Path dataPath;
     private final Path gitPath;
+    private final CredentialsProvider credentials;
     private Git git;
     private GitOperationService gitOps;
 
@@ -57,10 +60,15 @@ public class Server {
         }
         this.config = GTD.MAPPER.readValue(lConfig.toFile(), GitConfig.class);
         this.gitPath = dataPath.resolve("git");
+        String t = config.gitToken;
+        this.credentials = (t != null && !t.isBlank())
+            ? new UsernamePasswordCredentialsProvider("oauth2", t) : null;
         try {
             this.git = Git.open(gitPath.toFile());
-            this.gitOps = new GitOperationService(this.git);
-            this.git.checkout().setName(this.config.branch).call();
+            this.gitOps = new GitOperationService(this.git, this.credentials);
+            if (this.git.getRepository().resolve("HEAD") != null) {
+                this.git.checkout().setName(this.config.branch).call();
+            }
             synchroAll(guild);
         } catch (RepositoryNotFoundException ign) {
         } catch (org.eclipse.jgit.api.errors.GitAPIException e) {
@@ -75,12 +83,20 @@ public class Server {
             this.git = Git.cloneRepository()
                     .setURI(url)
                     .setDirectory(dataPath.resolve("git").toFile())
+                    .setCredentialsProvider(this.credentials)
                     .call();
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize Git repository", e);
         }
-        this.gitOps = new GitOperationService(this.git);
+        this.gitOps = new GitOperationService(this.git, this.credentials);
         synchroAll(guild);
+        try {
+            if (this.git.getRepository().resolve("HEAD") == null) {
+                gitOps.commitAndPushInitial("feat: initial Discord state snapshot");
+            }
+        } catch (GitAPIException e) {
+            throw new IOException("Échec du commit initial", e);
+        }
     }
 
     public void synchroAll(Guild guild) throws IOException {
@@ -167,15 +183,15 @@ public class Server {
             POJOUtils.parseThread(thread));
     }
 
-    public record PullResult(int created, int updated) {
+    public record PullResult(int created, int updated, int deleted) {
         @Override public String toString() {
-            return created + " entité(s) créée(s), " + updated + " mise(s) à jour";
+            return created + " créée(s), " + updated + " mise(s) à jour, " + deleted + " supprimée(s)";
         }
     }
 
     public PullResult pull(Guild guild) throws IOException, GitAPIException {
         if (git == null) throw new IllegalStateException("Git not initialized — run /init first");
-        git.pull().call();
+        gitOps.pull();
         return applyGitState(guild);
     }
 
@@ -194,7 +210,7 @@ public class Server {
         PullExecutor executor      = new PullExecutor(guild);
         Map<Long, Long> tempToReal = new LinkedHashMap<>();
 
-        int created = 0, updated = 0;
+        int created = 0, updated = 0, deleted = 0;
 
         if (guildFile != null) { executor.applyGuild(guildFile); updated++; }
 
@@ -207,6 +223,7 @@ public class Server {
             created++;
         }
         for (var e : roles.toUpdate()) { executor.applyRole(e.discordId(), e.file()); updated++; }
+        for (long id : roles.toDelete()) { executor.deleteRole(id); deleted++; }
 
         Map<Long, String> existingCats = guild.getCategories().stream()
                 .collect(Collectors.toMap(Category::getIdLong, Category::getName));
@@ -217,6 +234,7 @@ public class Server {
             created++;
         }
         for (var e : cats.toUpdate()) { executor.applyCategory(e.discordId(), e.file()); updated++; }
+        for (long id : cats.toDelete()) { executor.deleteCategory(id); deleted++; }
 
         for (ChannelFile f : chanFiles) {
             if (TempIdUtils.isTemp(f.parentCategoryId) && tempToReal.containsKey(f.parentCategoryId)) {
@@ -229,13 +247,14 @@ public class Server {
         ReconcileResult<ChannelFile> channels = reconciler.reconcileChannels(existingChannels, chanFiles);
         for (ChannelFile f : channels.toCreate()) { executor.createChannel(f); created++; }
         for (var e : channels.toUpdate()) { executor.applyChannel(e.discordId(), e.file()); updated++; }
+        for (long id : channels.toDelete()) { executor.deleteChannel(id); deleted++; }
 
         if (!tempToReal.isEmpty()) {
             resolveTempIds(tempToReal);
             gitOps.commitAndPush("fix: resolve temp IDs to Discord IDs");
         }
 
-        return new PullResult(created, updated);
+        return new PullResult(created, updated, deleted);
     }
 
     private void resolveTempIds(Map<Long, Long> tempToReal) throws IOException {
@@ -403,5 +422,6 @@ public class Server {
 
     public static class GitConfig {
         public String branch = "main";
+        public String gitToken;
     }
 }
