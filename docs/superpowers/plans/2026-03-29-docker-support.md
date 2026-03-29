@@ -6,7 +6,7 @@
 
 **Architecture:** Multi-stage build avec `gradle:8-jdk21` pour produire un fat JAR via shadowJar, puis `eclipse-temurin:21-jre-jammy` (Debian, requis pour les natives zstd/webp) comme runtime. La logique de résolution de config dans `GTD.main()` est extraite en méthode testable qui gère trois cas : fichier existant, env vars, ou erreur explicite.
 
-**Tech Stack:** Docker, Gradle Shadow Plugin 8.1.1, JUnit 5 (existant)
+**Tech Stack:** Docker, Gradle Shadow Plugin `com.gradleup.shadow:8.3.6` (fork maintenu de johnrengelman, requis pour Gradle 9.x), JUnit 5 (existant)
 
 ---
 
@@ -14,7 +14,7 @@
 
 | Fichier | Action |
 |---|---|
-| `build.gradle` | Ajouter plugin `com.github.johnrengelman.shadow` + manifest Main-Class |
+| `build.gradle` | Ajouter plugin `com.gradleup.shadow:8.3.6` + manifest Main-Class + `shadowJar { mergeServiceFiles() }` |
 | `src/main/java/fr/enimaloc/gtd/GTD.java` | Extraire `resolveConfig()`, enrichir `main()` |
 | `src/test/java/fr/enimaloc/gtd/GTDConfigTest.java` | Nouveau : tests pour `resolveConfig()` |
 | `Dockerfile` | Nouveau : multi-stage build |
