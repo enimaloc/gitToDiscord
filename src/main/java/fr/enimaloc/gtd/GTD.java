@@ -9,7 +9,6 @@ import net.dv8tion.jda.api.events.guild.GuildJoinEvent;
 import net.dv8tion.jda.api.events.guild.GuildReadyEvent;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
-import net.dv8tion.jda.api.interactions.commands.Command;
 import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.interactions.commands.build.Commands;
 import net.dv8tion.jda.api.interactions.commands.build.SubcommandData;
@@ -19,7 +18,8 @@ import net.dv8tion.jda.api.requests.GatewayIntent;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.*;
+import java.util.List;
+import java.util.Map;
 
 public class GTD extends ListenerAdapter {
     public static final TomlMapper MAPPER = new TomlMapper();
@@ -77,32 +77,14 @@ public class GTD extends ListenerAdapter {
     public void init() {
         jda.addEventListener(this);
         jda.addEventListener(new DiscordEventSync(servers));
-        List<Command> commands = jda.retrieveCommands().complete();
-        Set<String> existing = new HashSet<>();
-        for (Command command : commands) {
-            existing.add(command.getFullCommandName());
-        }
-
-        if (!existing.contains("init")) {
-            jda.upsertCommand("init", "Initialize the git repository")
-                    .addOption(OptionType.STRING, "repository", "Repository URL", true)
-                    .addOption(OptionType.STRING, "token", "GitHub/Git token", true)
-                    .queue();
-        }
-        if (!existing.contains("push")) {
-            jda.upsertCommand("push", "Push changes to the git repository")
-                    .queue();
-        }
-        if (!existing.contains("pull")) {
-            jda.upsertCommand("pull", "Pull changes from the git repository")
-                    .queue();
-        }
-        if (!existing.contains("archive")) {
-            jda.upsertCommand("archive", "Archive l'historique complet des messages du serveur")
-                    .queue();
-        }
-        if (!existing.contains("branch")) {
-            jda.upsertCommand(Commands.slash("branch", "Gérer les branches git")
+        jda.updateCommands().addCommands(
+            Commands.slash("init", "Initialize the git repository")
+                .addOption(OptionType.STRING, "repository", "Repository URL", true)
+                .addOption(OptionType.STRING, "token", "GitHub/Git token", false),
+            Commands.slash("push", "Push changes to the git repository"),
+            Commands.slash("pull", "Pull changes from the git repository"),
+            Commands.slash("archive", "Archive l'historique complet des messages du serveur"),
+            Commands.slash("branch", "Gérer les branches git")
                 .addSubcommands(
                     new SubcommandData("create", "Créer une nouvelle branche")
                         .addOption(OptionType.STRING, "name", "Nom de la branche", true),
@@ -111,16 +93,11 @@ public class GTD extends ListenerAdapter {
                     new SubcommandData("list", "Lister toutes les branches"),
                     new SubcommandData("delete", "Supprimer une branche")
                         .addOption(OptionType.STRING, "name", "Nom de la branche", true)
-                )).queue();
-        }
-        if (!existing.contains("cherry-pick")) {
-            jda.upsertCommand(Commands.slash("cherry-pick", "Appliquer un commit git sur Discord")
-                .addOption(OptionType.STRING, "commit", "Hash du commit", true)
-            ).queue();
-        }
-        if (!existing.contains("status")) {
-            jda.upsertCommand("status", "Afficher l'état git du dépôt").queue();
-        }
+                ),
+            Commands.slash("cherry-pick", "Appliquer un commit git sur Discord")
+                .addOption(OptionType.STRING, "commit", "Hash du commit", true),
+            Commands.slash("status", "Afficher l'état git du dépôt")
+        ).queue();
     }
 
     public static class Config {
