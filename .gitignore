@@ -41,3 +41,13 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+### GTD project ###
+# Config file (contient des tokens secrets)
+config.toml
+# Données runtime des guildes Discord
+data/
+# Logs
+*.log
+# Fichiers de déploiement locaux
+docker-compose.override.yml
